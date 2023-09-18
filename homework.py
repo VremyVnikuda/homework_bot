@@ -29,17 +29,18 @@ HOMEWORK_VERDICTS = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('my_logger')
 logger.setLevel(logging.DEBUG)
-handler = logging.StreamHandler(sys.stdout)
-logger.addHandler(handler)
 formatter = logging.Formatter('%(asctime)s, %(levelname)s, %(message)s')
+
+handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 
 def send_message(bot, message):
     """Отправляет сообщение в Telegram чат."""
-    logger.debug("Отправляю сообщение в телеграм")
+    logger.debug('Отправляю сообщение в телеграм')
     try:
         bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
     except Exception as error:
@@ -48,46 +49,51 @@ def send_message(bot, message):
 
 def get_api_answer(current_timestamp):
     """Делает запрос к API и возвращает преобразованный из JSON словарь."""
-    logger.debug("Отправляю запрос к эндпоинту")
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
     try:
-        logger.debug(f"Отправлен запрос на {ENDPOINT}")
+        logger.debug(f'Отправлен запрос на {ENDPOINT}')
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
         if response.status_code != HTTPStatus.OK:
             raise ConnectionError(
-                f'Ответ не получен,код ошибки: {response.status_code}')
-        logger.debug("Ответ от API успешно получен")
+                f'Ответ не получен, код ошибки: {response.status_code}')
         try:
-            return response.json()
+            json_response = response.json()
+            logger.debug('Ответ от API успешно получен')
+            return json_response
         except Exception as error:
             raise Exception(f'Формат полученного ответа - не JSON: {error}')
     except Exception as error:
-        raise Exception(f'Ошибка при попытке подключения к эндпоинту: {error}')
+        raise Exception(f'Ошибка при попытке подключения к эндпоинту: {error},'
+                        f'параметры запроса: {params}')
 
 
 def check_response(response):
     """Проверяет ответ API и возвращает список домашних работ."""
-    logger.debug("Проверяю, все ли ок с ответом API")
+    logger.debug('Проверяю, все ли ок с ответом API')
     if not isinstance(response, dict):
-        raise TypeError('Ответ, полученный от API, не является словарем')
+        raise TypeError(f'Ответ, полученный от API, не является словарем.'
+                        f'Тип данных: {type(response)}')
     if 'homeworks' not in response:
         raise KeyError('В ответе API нет ключа "homeworks"')
     if not isinstance(response['homeworks'], list):
-        raise TypeError('Значение по ключу "homeworks" не является списком')
+        raise TypeError(f'Значение по ключу "homeworks" не является списком.'
+                        f'Тип данных: {type(response["homeworks"])}')
     if 'current_date' not in response:
         raise KeyError('В ответе API нет ключа "current_date"')
     if not isinstance(response['current_date'], int):
-        raise TypeError('Значение по ключу "current_date" некорректно')
-    logger.debug("Данные о домашних работах получены")
+        raise TypeError(f'Значение по ключу "current_date" некорректно.'
+                        f'Тип данных: {type(response["current_date"])}')
+    logger.debug('Данные о домашних работах получены')
     return response['homeworks']
 
 
 def parse_status(homework):
     """Определяет и возвращает статус домашней работы."""
-    logger.debug("Проверяю статус домашки")
+    logger.debug('Проверяю статус домашки')
     if not isinstance(homework, dict):
-        raise TypeError('Данные о домашке не являются словарем')
+        raise TypeError(f'Данные о домашке не являются словарем.'
+                        f'Тип данных: {type(homework)}')
     if 'homework_name' not in homework:
         raise KeyError('В данных о домашке нет ключа "homework_name"')
     if 'status' not in homework:
@@ -97,7 +103,7 @@ def parse_status(homework):
     if homework_status not in HOMEWORK_VERDICTS:
         raise KeyError(f'Статус {homework_status} не распознан')
     verdict = HOMEWORK_VERDICTS[homework_status]
-    logger.debug("Статус домашней работы определен!")
+    logger.debug('Статус домашней работы определен!')
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
@@ -123,10 +129,15 @@ def main():
             homeworks = check_response(response)
             if homeworks:
                 message = parse_status(homeworks[0])
-                send_message(bot, message)
                 logger.info(f'Сообщение {message} успешно отправлено')
             else:
                 logger.debug('Статус работы не изменился')
+                message = None
+
+            if message and message != last_error_message:
+                send_message(bot, message)
+                last_error_message = message
+
             current_timestamp = response.get('current_date')
 
         except Exception as error:
@@ -135,8 +146,6 @@ def main():
             if message != last_error_message:
                 send_message(bot, message)
                 last_error_message = message
-        else:
-            last_error_message = None
         finally:
             time.sleep(RETRY_PERIOD)
 
